@@ -23,6 +23,17 @@
         </div>
     </div>
 
+    {% if concierge_disabled %}
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="alert alert-warning" role="alert">
+                <strong>Concierge disabled on this host.</strong>
+                {{ concierge_disabled_message }}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <div class="row g-4">
         <div class="col-lg-8">
             <div class="glass-card p-4 h-100">
@@ -33,10 +44,17 @@
                 <div id="concierge-history"
                      class="border rounded p-3 mb-3"
                      style="height: 420px; overflow-y: auto; background: rgba(0,0,0,0.25);">
+                    {% if concierge_disabled %}
+                    <div class="mb-3">
+                        <div class="small text-muted mb-1">Concierge</div>
+                        <pre style="white-space: pre-wrap; word-break: break-word; margin: 0; font-family: inherit;">{{ concierge_disabled_message }}</pre>
+                    </div>
+                    {% else %}
                     <div class="text-muted small">
                         The Concierge will respond here. Messages are not
                         persisted between page loads.
                     </div>
+                    {% endif %}
                 </div>
                 <form id="concierge-form" autocomplete="off">
                     <div class="mb-3">
@@ -47,9 +65,11 @@
                                   class="form-control"
                                   rows="3"
                                   placeholder="How may the Concierge assist you?"
+                                  {% if concierge_disabled %}readonly title="Concierge is disabled on this host."{% endif %}
                                   required></textarea>
                     </div>
-                    <button type="submit" class="btn btn-primary" id="concierge-send">
+                    <button type="submit" class="btn btn-primary" id="concierge-send"
+                            {% if concierge_disabled %}disabled title="Concierge is disabled on this host."{% endif %}>
                         <i data-feather="send" class="me-1"></i>
                         Send
                     </button>
@@ -79,7 +99,8 @@
                                placeholder="https://example.com/notes.txt"
                                required>
                     </div>
-                    <button type="submit" class="btn btn-outline-info btn-sm">
+                    <button type="submit" class="btn btn-outline-info btn-sm"
+                            {% if concierge_disabled %}disabled title="Concierge is disabled on this host."{% endif %}>
                         <i data-feather="download" class="me-1"></i>
                         Load URL
                     </button>
@@ -102,7 +123,8 @@
                                   placeholder="Paste document text here"
                                   required></textarea>
                     </div>
-                    <button type="submit" class="btn btn-outline-info btn-sm">
+                    <button type="submit" class="btn btn-outline-info btn-sm"
+                            {% if concierge_disabled %}disabled title="Concierge is disabled on this host."{% endif %}>
                         <i data-feather="upload" class="me-1"></i>
                         Add document
                     </button>

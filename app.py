@@ -245,6 +245,9 @@ def concierge_page():
         'concierge.html',
         model_name=CONCIERGE_MODEL_NAME,
         context_count=len(_concierge.get_extra_context()),
+        concierge_disabled=_concierge.is_disabled(),
+        concierge_disabled_reason=_concierge.disabled_reason(),
+        concierge_disabled_message=_concierge.disabled_message(),
     )
 
 def _concierge_session_id():
@@ -283,23 +286,31 @@ def concierge_chat():
     session_id = _concierge_session_id()
     context_labels = _concierge_context_labels()
 
+    effective_model_name = (
+        "disabled" if _concierge.is_disabled() else CONCIERGE_MODEL_NAME
+    )
+
     log_concierge_event(
         "prompt", request,
         session_id=session_id, turn_id=turn_id,
-        model_name=CONCIERGE_MODEL_NAME,
+        model_name=effective_model_name,
         prompt_text=user_message,
         context_document_count=len(context_labels),
         context_document_labels=context_labels,
     )
 
-    response_text, response_path = _concierge.generate(user_message)
+    if _concierge.is_disabled():
+        response_text = _concierge.disabled_message()
+        response_path = "disabled"
+    else:
+        response_text, response_path = _concierge.generate(user_message)
 
     # Re-read context labels in case generate() (or the model) mutated state.
     context_labels = _concierge_context_labels()
     log_concierge_event(
         "response", request,
         session_id=session_id, turn_id=turn_id,
-        model_name=CONCIERGE_MODEL_NAME,
+        model_name=effective_model_name,
         response_text=response_text,
         response_path=response_path,
         context_document_count=len(context_labels),

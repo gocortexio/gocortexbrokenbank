@@ -179,8 +179,28 @@ RUN pip install --no-cache-dir \
     pygremlinbox-tpl-1-0==1.4.6 \
     pygremlinbox-ucl-1-0==1.4.6 \
     pygremlinbox-unlicense==1.4.6 \
-    pygremlinbox-wxwindows==1.4.6 \
-    llama-cpp-python==0.3.5
+    pygremlinbox-wxwindows==1.4.6
+
+# Install the prebuilt llama-cpp-python wheel from PyPI. The wheel
+# statically compiles GGML with AVX/AVX2/F16C/FMA enabled, which is fast
+# on Haswell-or-later hosts but SIGILLs the gunicorn worker on older
+# CPUs that do not expose those flags. The runtime CPU-feature guard in
+# chatbot/concierge.py disables the Concierge entirely on such hosts so
+# the import that would crash never runs. See the internal Concierge
+# build notes for the rationale and the operator verification log.
+#
+# The 3-attempt retry loop and extended pip timeouts cover transient
+# PyPI fetch failures that have been observed during image builds. The
+# in-layer import probe fails the build fast if the wheel does not
+# unpack correctly on the AVX2-capable CI runner.
+RUN for i in 1 2 3; do \
+        pip install --no-cache-dir \
+            --timeout 300 \
+            --retries 5 \
+            llama-cpp-python==0.3.5 \
+        && break || { if [ "$i" -eq 3 ]; then echo "llama-cpp-python install failed after 3 attempts"; exit 1; fi; echo "llama-cpp-python install attempt $i failed, retrying in 10s..."; sleep 10; }; \
+    done && \
+    python -c "from llama_cpp import Llama; print('llama_cpp import ok')"
 
 # Bake the SmolLM2-135M-Instruct GGUF Q4_K_M weights into the image so the
 # Mars Banking Initiative Concierge can run inference without network access

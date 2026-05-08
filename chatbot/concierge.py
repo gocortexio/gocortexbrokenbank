@@ -43,6 +43,67 @@ _FORCE_FAST_LEAK = os.environ.get(
     "CONCIERGE_FORCE_FAST_LEAK", ""
 ).strip().lower() in ("1", "true", "yes", "on")
 
+# Runtime CPU-feature guard. The prebuilt llama-cpp-python wheel statically
+# compiles GGML's hot kernels with AVX2/F16C/FMA enabled and dies with SIGILL
+# inside the dlopen of libllama.so on hosts missing any of those flags
+# (older bare metal, Proxmox/ESXi compatibility CPU profiles, qemu-user on
+# ARM). We read /proc/cpuinfo once at import time, before anyone tries to
+# import llama_cpp, and if the required set is incomplete we mark the
+# Concierge disabled. _try_load_model() and start_warmup() then become
+# no-ops, generate() short-circuits to a polite "disabled" message, and
+# the route layer renders a banner plus disabled buttons. The validator
+# fast-path env flag CONCIERGE_FORCE_FAST_LEAK forces this guard off so CI
+# (which always runs on AVX2-capable hardware) keeps passing regardless of
+# what /proc/cpuinfo would say if the validator were ever pointed at an
+# older host.
+_REQUIRED_CPU_FLAGS = ("avx2", "f16c", "fma")
+_DISABLED_MESSAGE = (
+    "Sorry, this host's CPU is missing AVX2/F16C/FMA so the Concierge "
+    "has disabled itself to avoid extreme latency."
+)
+
+
+def _probe_cpu_flags() -> set[str]:
+    try:
+        with open("/proc/cpuinfo", "r") as fh:
+            for line in fh:
+                if line.startswith("flags"):
+                    _, _, rest = line.partition(":")
+                    return set(rest.strip().split())
+    except OSError:
+        pass
+    return set()
+
+
+def _compute_disabled() -> Tuple[bool, str]:
+    if _FORCE_FAST_LEAK:
+        return False, ""
+    flags = _probe_cpu_flags()
+    missing = [f for f in _REQUIRED_CPU_FLAGS if f not in flags]
+    if missing:
+        return True, "host CPU lacks " + ",".join(missing)
+    return False, ""
+
+
+_disabled, _disabled_reason = _compute_disabled()
+if _disabled:
+    logger.warning(
+        "Concierge disabled at startup: %s; llama_cpp will not be imported",
+        _disabled_reason,
+    )
+
+
+def is_disabled() -> bool:
+    return _disabled
+
+
+def disabled_reason() -> str:
+    return _disabled_reason
+
+
+def disabled_message() -> str:
+    return _DISABLED_MESSAGE
+
 SECRETS_DIR = (
     Path(__file__).resolve().parent.parent
     / "vulnerable_data"
@@ -136,6 +197,12 @@ def clear_context() -> None:
 
 def _try_load_model() -> None:
     global _llm, _load_attempted
+    if _disabled:
+        _load_attempted = True
+        logger.info(
+            "Concierge model load skipped: %s", _disabled_reason
+        )
+        return
     _load_attempted = True
     try:
         from llama_cpp import Llama
@@ -191,6 +258,8 @@ def start_warmup() -> None:
     completes rather than racing and getting _llm=None.
     """
     global _warmup_started
+    if _disabled:
+        return
     with _lock:
         if _warmup_started:
             return
@@ -461,6 +530,10 @@ def generate(user_message: str) -> Tuple[str, str]:
     the response. Logs the full prompt and response to stdout (more
     sensitive-data leakage for SIEM training, per the task spec).
     """
+    if _disabled:
+        logger.info("CONCIERGE RESPONSE (disabled)=%r", _disabled_reason)
+        return _DISABLED_MESSAGE, "disabled"
+
     system_prompt = get_system_prompt()
     if _extra_context:
         extras = "\n\n".join(
